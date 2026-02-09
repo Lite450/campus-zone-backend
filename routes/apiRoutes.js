@@ -43,7 +43,8 @@ router.post('/bus/start-trip', busCtrl.startTrip);
 router.post('/bus/end-trip', busCtrl.endTrip);
 router.get('/bus/live-location', busCtrl.getLiveLocation);
 // 1. Setup & List Management
-router.post('/bus/init', busCtrl.initBus);                 // Create Bus Profile
+router.post('/bus/init', busCtrl.initBus);
+router.get('/bus/details', busCtrl.getBusByDriver);                 // Create Bus Profile
 router.get('/bus/all-users', busCtrl.getAllUsers);         // Search users to add
 router.post('/bus/add-passenger', busCtrl.addPassenger);   // Add user to list
 router.post('/bus/remove-passenger', busCtrl.removePassenger); // Remove user

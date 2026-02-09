@@ -131,17 +131,21 @@ exports.defaultAdminLogin = async (req, res) => {
 
 exports.getUsersByRole = async (req, res) => {
   try {
-    const { role } = req.params; // We will pass role in the URL
+    const { role } = req.params;
 
-    // Validate role
+    // 1. Validate role
     const validRoles = ['student', 'teacher', 'driver', 'non-faculty', 'admin'];
     if (!validRoles.includes(role)) {
       return res.status(400).json({ message: "Invalid Role" });
     }
 
-    // Find users of that role
-    // .select('-password') ensures we don't send passwords back
-    const users = await User.find({ role: role }).select('-password').sort({ name: 1 });
+    // 2. Find users with specific role AND isApproved set to true
+    const users = await User.find({ 
+      role: role, 
+      isApproved: true  // <--- Added this filter
+    })
+    .select('-password') // Don't send passwords
+    .sort({ name: 1 });   // Sort alphabetically
 
     res.status(200).json({
       count: users.length,

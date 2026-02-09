@@ -33,18 +33,37 @@ function calculatePrediction(startLat, startLng, destLat, destLng, startTime) {
 exports.initBus = async (req, res) => {
   try {
     const { driverId, busNumber } = req.body;
-    // Check if bus exists, if not create
-    let bus = await Bus.findOne({ driverId });
-    if (!bus) {
-      bus = new Bus({ driverId, busNumber, passengers: [] });
-      await bus.save();
-    }
-    res.status(200).json({ message: "Bus Profile Ready", bus });
+
+    // findOneAndUpdate with { upsert: true } handles both create and update
+    const bus = await Bus.findOneAndUpdate(
+      { driverId },
+      { busNumber },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    res.status(200).json({ 
+      message: "Bus Profile saved/updated successfully", 
+      bus 
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
+exports.getBusByDriver = async (req, res) => {
+  try {
+    const { driverId } = req.query;
 
+    const bus = await Bus.findOne({ driverId });
+    
+    if (!bus) {
+      return res.status(200).json({ busNumber: "" }); // Return empty if not found
+    }
+
+    res.status(200).json(bus);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
 // 2. Get All Available Users (For Driver to Search & Add)
 exports.getAllUsers = async (req, res) => {
   try {
