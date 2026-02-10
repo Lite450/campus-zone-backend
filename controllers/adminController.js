@@ -5,25 +5,25 @@ const emailService = require('../utils/emailService');
 // Set Institute Location
 exports.setInstituteLocation = async (req, res) => {
   try {
-    const { lat, lng, radius, adminId } = req.body; 
+    const { lat, lng, radius, adminId } = req.body;
 
     // FILTER by adminId. 
     // If an institute with this adminId exists -> UPDATE it.
     // If not -> CREATE it.
     const institute = await Institute.findOneAndUpdate(
       { adminId: adminId }, // <--- The Change: Look for this specific Admin's institute
-      { 
-        location: { lat, lng }, 
+      {
+        location: { lat, lng },
         geofenceRadius: radius || 0.5,
         adminId: adminId,
         lastUpdated: Date.now()
-      }, 
+      },
       { upsert: true, new: true }
     );
-    
-    res.status(200).json({ 
-      message: "Institute Location Updated Successfully", 
-      institute: institute 
+
+    res.status(200).json({
+      message: "Institute Location Updated Successfully",
+      institute: institute
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -40,29 +40,30 @@ exports.sendBroadcast = async (req, res) => {
     }
 
     // 1. Save to DB
-    await Broadcast.create({ 
-      senderId: senderId || "000000000000000000000000", 
-      title, 
-      message, 
-      targetAudience 
+    await Broadcast.create({
+      senderId: senderId || "000000000000000000000000",
+      title,
+      message,
+      targetAudience
     });
 
     // 2. Build Query
     let query = { isApproved: true };
-    
+
     // Logic: If audience is NOT 'all', filter by that specific role
     // This now automatically handles 'student', 'teacher', 'driver', and 'non-faculty'
     if (targetAudience !== 'all') {
       query.role = targetAudience;
     }
-    
+
     const users = await User.find(query).select('email');
     const emailList = users.map(u => u.email).filter(e => e);
 
     // 3. Background Email Sending
     if (emailList.length > 0) {
-        emailService.sendBroadcastEmail(emailList, title, message)
-            .catch(err => console.error("Staff Broadcast Email Error:", err));
+      emailService.sendBroadcastEmail(emailList, title, message)
+        .then(() => console.log(`📧 Broadcast emails sent to ${emailList.length} users.`))
+        .catch(err => console.error("❌ Staff Broadcast Email Error:", err.message));
     }
 
     // 4. Socket Emit (Real-time App Notification)
@@ -76,8 +77,8 @@ exports.sendBroadcast = async (req, res) => {
       io.to(`role-${targetAudience}`).emit('broadcast-alert', payload);
     }
 
-    res.status(200).json({ 
-        message: `Transmitted to ${emailList.length} ${targetAudience} users.` 
+    res.status(200).json({
+      message: `Transmitted to ${emailList.length} ${targetAudience} users.`
     });
 
   } catch (error) {

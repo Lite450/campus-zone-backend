@@ -3,22 +3,24 @@ const nodemailer = require('nodemailer');
 // 1. Configure Optimized Cloud Transporter
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port: 465, // Direct SSL - Most reliable for Render/Cloud
-  secure: true, 
-  pool: true,   // Keeps connection open for multiple emails (Broadcasts)
-  maxConnections: 5,
+  port: 587, // Port 587 (STARTTLS) is more reliable on Render/Cloud than 465
+  secure: false, // Must be false for port 587
+  requireTLS: true,
+  pool: true,   // Keeps connection open for multiple emails
+  maxConnections: 3,
   maxMessages: 100,
   auth: {
     user: process.env.EMAIL_USER,
     // Automatically removes spaces from your App Password string
     pass: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.replace(/\s+/g, '') : ""
   },
-  // High timeouts to handle cloud network latency
-  connectionTimeout: 30000, // 30 seconds
-  greetingTimeout: 30000,
-  socketTimeout: 60000,
+  connectionTimeout: 20000,
+  greetingTimeout: 20000,
+  socketTimeout: 30000,
   tls: {
-    rejectUnauthorized: false // Bypass local certificate issues
+    // Helps with handshake issues in cloud environments
+    rejectUnauthorized: false,
+    minVersion: 'TLSv1.2'
   }
 });
 
@@ -34,7 +36,7 @@ transporter.verify((error, success) => {
 // 2. Standard HTML Template Design
 const getHtmlTemplate = (title, bodyContent, isUrgent = false) => {
   const headerColor = isUrgent ? '#d9534f' : '#6366f1'; // Red for SOS, Indigo for others
-  
+
   return `
     <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
       <div style="background-color: ${headerColor}; padding: 30px; text-align: center; color: white;">
@@ -67,12 +69,9 @@ const sendEmail = async (toEmails, subject, htmlContent) => {
 
   try {
     await transporter.sendMail(mailOptions);
-    console.log(toEmails);
-    
     console.log(`📧 SUCCESS: Email sent to ${Array.isArray(toEmails) ? toEmails.length : 1} recipients.`);
   } catch (error) {
     console.error("❌ NODEMAILER CLOUD ERROR:", error.message);
-    // Log the full error for debugging in Render but don't stop the server
   }
 };
 
