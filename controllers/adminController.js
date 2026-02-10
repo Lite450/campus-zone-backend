@@ -49,35 +49,35 @@ exports.sendBroadcast = async (req, res) => {
 
     // 2. Build Query
     let query = { isApproved: true };
+    
+    // Logic: If audience is NOT 'all', filter by that specific role
+    // This now automatically handles 'student', 'teacher', 'driver', and 'non-faculty'
     if (targetAudience !== 'all') {
       query.role = targetAudience;
     }
     
-    // Fetch users and extract unique emails
     const users = await User.find(query).select('email');
-    
-    // Use Set to remove duplicates and filter out empty values
-    const uniqueEmails = [...new Set(users.map(u => u.email).filter(e => e && e.includes('@')))];
+    const emailList = users.map(u => u.email).filter(e => e);
 
     // 3. Background Email Sending
-    if (uniqueEmails.length > 0) {
-        // We pass the unique list to the service
-        emailService.sendBroadcastEmail(uniqueEmails, title, message)
-            .catch(err => console.error("Email Service Error:", err));
+    if (emailList.length > 0) {
+        emailService.sendBroadcastEmail(emailList, title, message)
+            .catch(err => console.error("Staff Broadcast Email Error:", err));
     }
 
-    // 4. Socket Emit (Remains the same)
+    // 4. Socket Emit (Real-time App Notification)
     const io = req.app.get('socketio');
     const payload = { title, message, from: 'Admin', date: new Date() };
 
     if (targetAudience === 'all') {
       io.emit('broadcast-alert', payload);
     } else {
+      // Sends to specific room: role-student, role-teacher, role-non-faculty etc.
       io.to(`role-${targetAudience}`).emit('broadcast-alert', payload);
     }
 
     res.status(200).json({ 
-        message: `Broadcast sent to ${uniqueEmails.length} recipients via App & Email.` 
+        message: `Transmitted to ${emailList.length} ${targetAudience} users.` 
     });
 
   } catch (error) {
