@@ -1,65 +1,42 @@
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 
-// 1. Create a Pooled Transporter
-// Pooling is CRITICAL for Render to prevent connection drops during broadcasts
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465, // Port 465 is the ONLY reliable port for Render/Cloud
-  secure: true, // true for 465
-  pool: true,   // Reuse the connection instead of creating new ones
-  maxConnections: 5,
-  maxMessages: 100,
-  auth: {
-    user: process.env.EMAIL_USER,
-    // This regex removes spaces automatically in case they exist in Render Dashboard
-    pass: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.replace(/\s+/g, '') : ""
-  },
-  // HIGH TIMEOUTS FOR CLOUD LATENCY
-  connectionTimeout: 60000, // 60 seconds
-  greetingTimeout: 30000,   // 30 seconds
-  socketTimeout: 60000,     // 60 seconds
-  debug: false,             // Set to true if you need to see logs in Render console
-  logger: false
-});
+// Initialize with API Key
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-// 2. HTML Template
 const getHtmlTemplate = (title, bodyContent, isUrgent = false) => {
-  const headerColor = isUrgent ? '#d9534f' : '#6366f1'; 
+  const headerColor = isUrgent ? '#ef4444' : '#6366f1'; 
   return `
-    <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05);">
-      <div style="background-color: ${headerColor}; padding: 30px; text-align: center; color: white;">
-        <h1 style="margin: 0; font-size: 26px; letter-spacing: 1px;">Campus Soon</h1>
-        <p style="margin: 5px 0 0; font-size: 14px; opacity: 0.9;">${title}</p>
+    <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0;">
+      <div style="background-color: ${headerColor}; padding: 30px; text-align: center;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">Campus Soon</h1>
+        <p style="color: rgba(255,255,255,0.8); margin: 5px 0 0;">${title}</p>
       </div>
-      <div style="padding: 30px; background-color: #ffffff; color: #333333; line-height: 1.6; font-size: 15px;">
+      <div style="padding: 30px; background: white; color: #1e293b; line-height: 1.6;">
         ${bodyContent}
       </div>
-      <div style="background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #888888; border-top: 1px solid #eeeeee;">
-        <p>Campus Soon Digital Ecosystem • Automated Notification</p>
-        <p>Please do not reply to this email.</p>
+      <div style="background: #f8fafc; padding: 20px; text-align: center; color: #64748b; font-size: 12px;">
+        © 2026 Campus Soon Ecosystem. All rights reserved.
       </div>
     </div>
   `;
 };
 
-// 3. Optimized Send Function
 const sendEmail = async (toEmails, subject, htmlContent) => {
-  if (!toEmails || (Array.isArray(toEmails) && toEmails.length === 0)) return;
-
-  const mailOptions = {
-    from: `"Campus Soon Admin" <${process.env.EMAIL_USER}>`,
-    to: Array.isArray(toEmails) ? toEmails.join(', ') : toEmails,
-    subject: subject,
-    html: htmlContent
-  };
-
   try {
-    // Verify connection before sending (Optional but helpful for debugging Render)
-    await transporter.sendMail(mailOptions);
-    console.log(`📧 SUCCESS: Email sent to ${Array.isArray(toEmails) ? toEmails.length : 1} users.`);
+    const recipients = Array.isArray(toEmails) ? toEmails : [toEmails];
+    
+    // SendGrid handles mass mailing (BCC/Personalizations) very well
+    const msg = {
+      to: recipients,
+      from: process.env.EMAIL_USER, // Must be verified in SendGrid
+      subject: subject,
+      html: htmlContent,
+    };
+
+    await sgMail.send(msg);
+    console.log(`📧 SUCCESS: API-based email delivered to ${recipients.length} users.`);
   } catch (error) {
-    console.error("❌ CLOUD EMAIL ERROR:", error.message);
-    // Don't throw error so the rest of the API logic (Socket/DB) continues
+    console.error("❌ SENDGRID ERROR:", error.response ? error.response.body : error.message);
   }
 };
 
@@ -70,31 +47,21 @@ module.exports = {
   },
 
   sendAssignmentEmail: async (emails, teacherName, topic, date) => {
-    const html = getHtmlTemplate('New Assignment Uploaded', `
+    const html = getHtmlTemplate('New Assignment', `
       <h3 style="color: #6366f1;">${topic}</h3>
       <p><strong>Teacher:</strong> ${teacherName}</p>
-      <p><strong>Submission Deadline:</strong> ${date}</p>
-      <p>Check your student dashboard for details.</p>
+      <p><strong>Deadline:</strong> ${date}</p>
     `);
     await sendEmail(emails, `📝 Assignment: ${topic}`, html);
   },
 
-  sendTimetableEmail: async (emails, teacherName, semester) => {
-    const html = getHtmlTemplate('Exam Timetable Published', `
-      <p>The exam schedule for <strong>${semester}</strong> has been released by ${teacherName}.</p>
-    `);
-    await sendEmail(emails, `📅 Exam Schedule: ${semester}`, html);
-  },
-
-  sendSOSEmail: async (emails, driverName, reason, googleMapLink) => {
-    const html = getHtmlTemplate('🚨 SOS EMERGENCY ALERT', `
-      <h2 style="color: #d9534f;">Emergency Reported</h2>
+  sendSOSEmail: async (emails, driverName, reason, mapLink) => {
+    const html = getHtmlTemplate('🚨 SOS ALERT', `
+      <h2 style="color: #ef4444;">Emergency Reported</h2>
       <p><strong>Driver:</strong> ${driverName}</p>
       <p><strong>Status:</strong> ${reason}</p>
-      <div style="text-align: center; margin-top: 20px;">
-        <a href="${googleMapLink}" style="background-color: #d9534f; color: white; padding: 12px 25px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Live Location</a>
-      </div>
+      <a href="${mapLink}" style="display:inline-block; padding:12px 20px; background:#ef4444; color:white; text-decoration:none; border-radius:8px; font-weight:bold;">Track Bus Location</a>
     `, true);
-    await sendEmail(emails, `🚨 SOS: Emergency on Bus`, html);
+    await sendEmail(emails, `🚨 SOS: Emergency Alert`, html);
   }
 };
