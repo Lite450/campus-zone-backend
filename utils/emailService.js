@@ -1,67 +1,122 @@
-const sgMail = require('@sendgrid/mail');
+const nodemailer = require('nodemailer');
 
-// Initialize with API Key
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+// 1. Configure Optimized Cloud Transporter
+const transporter = nodemailer.createTransport({
+  host: 'smtp.gmail.com',
+  port: 465, // Direct SSL - Most reliable for Render/Cloud
+  secure: true, 
+  pool: true,   // Keeps connection open for multiple emails (Broadcasts)
+  maxConnections: 5,
+  maxMessages: 100,
+  auth: {
+    user: process.env.EMAIL_USER,
+    // Automatically removes spaces from your App Password string
+    pass: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.replace(/\s+/g, '') : ""
+  },
+  // High timeouts to handle cloud network latency
+  connectionTimeout: 30000, // 30 seconds
+  greetingTimeout: 30000,
+  socketTimeout: 60000,
+  tls: {
+    rejectUnauthorized: false // Bypass local certificate issues
+  }
+});
 
+// Verify connection on startup (Check your Render logs for this)
+transporter.verify((error, success) => {
+  if (error) {
+    console.log("❌ Render Mail Server Error:", error.message);
+  } else {
+    console.log("✅ Render Mail Server is Ready (Campus Soon)");
+  }
+});
+
+// 2. Standard HTML Template Design
 const getHtmlTemplate = (title, bodyContent, isUrgent = false) => {
-  const headerColor = isUrgent ? '#ef4444' : '#6366f1'; 
+  const headerColor = isUrgent ? '#d9534f' : '#6366f1'; // Red for SOS, Indigo for others
+  
   return `
-    <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0;">
-      <div style="background-color: ${headerColor}; padding: 30px; text-align: center;">
-        <h1 style="color: white; margin: 0; font-size: 24px;">Campus Soon</h1>
-        <p style="color: rgba(255,255,255,0.8); margin: 5px 0 0;">${title}</p>
+    <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+      <div style="background-color: ${headerColor}; padding: 30px; text-align: center; color: white;">
+        <h1 style="margin: 0; font-size: 26px; letter-spacing: 1px;">Campus Soon</h1>
+        <p style="margin: 5px 0 0; font-size: 14px; opacity: 0.9;">${title}</p>
       </div>
-      <div style="padding: 30px; background: white; color: #1e293b; line-height: 1.6;">
+      <div style="padding: 30px; background-color: #ffffff; color: #333333; line-height: 1.6; font-size: 15px;">
         ${bodyContent}
       </div>
-      <div style="background: #f8fafc; padding: 20px; text-align: center; color: #64748b; font-size: 12px;">
-        © 2026 Campus Soon Ecosystem. All rights reserved.
+      <div style="background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #888888; border-top: 1px solid #eeeeee;">
+        <p style="margin-bottom: 5px;"><strong>Campus Soon Digital Ecosystem</strong></p>
+        <p style="margin-top: 0;">This is an automated notification. Please do not reply.</p>
       </div>
     </div>
   `;
 };
 
+// 3. Optimized Send Function
 const sendEmail = async (toEmails, subject, htmlContent) => {
-  try {
-    const recipients = Array.isArray(toEmails) ? toEmails : [toEmails];
-    
-    // SendGrid handles mass mailing (BCC/Personalizations) very well
-    const msg = {
-      to: recipients,
-      from: process.env.EMAIL_USER, // Must be verified in SendGrid
-      subject: subject,
-      html: htmlContent,
-    };
+  if (!toEmails || (Array.isArray(toEmails) && toEmails.length === 0)) return;
 
-    await sgMail.send(msg);
-    console.log(`📧 SUCCESS: API-based email delivered to ${recipients.length} users.`);
+  // We use BCC for broadcasts. It's more private and efficient for Gmail.
+  const mailOptions = {
+    from: `"Campus Soon Admin" <${process.env.EMAIL_USER}>`,
+    to: process.env.EMAIL_USER, // Send to yourself
+    bcc: Array.isArray(toEmails) ? toEmails.join(', ') : toEmails, // BCC everyone else
+    subject: subject,
+    html: htmlContent
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(toEmails);
+    
+    console.log(`📧 SUCCESS: Email sent to ${Array.isArray(toEmails) ? toEmails.length : 1} recipients.`);
   } catch (error) {
-    console.error("❌ SENDGRID ERROR:", error.response ? error.response.body : error.message);
+    console.error("❌ NODEMAILER CLOUD ERROR:", error.message);
+    // Log the full error for debugging in Render but don't stop the server
   }
 };
 
 module.exports = {
+  // A. Admin Broadcast
   sendBroadcastEmail: async (emails, title, message) => {
     const html = getHtmlTemplate(title, `<p style="font-size: 16px;">${message}</p>`);
-    await sendEmail(emails, `📢 Campus Notice: ${title}`, html);
+    await sendEmail(emails, `📢 Notice: ${title}`, html);
   },
 
+  // B. Teacher Assignment
   sendAssignmentEmail: async (emails, teacherName, topic, date) => {
-    const html = getHtmlTemplate('New Assignment', `
-      <h3 style="color: #6366f1;">${topic}</h3>
+    const html = getHtmlTemplate('New Assignment Uploaded', `
+      <h3 style="color: #6366f1; margin-top: 0;">${topic}</h3>
       <p><strong>Teacher:</strong> ${teacherName}</p>
-      <p><strong>Deadline:</strong> ${date}</p>
+      <p><strong>Submission Deadline:</strong> ${date}</p>
+      <p>Please check your student dashboard for full details and instructions.</p>
     `);
     await sendEmail(emails, `📝 Assignment: ${topic}`, html);
   },
 
-  sendSOSEmail: async (emails, driverName, reason, mapLink) => {
-    const html = getHtmlTemplate('🚨 SOS ALERT', `
-      <h2 style="color: #ef4444;">Emergency Reported</h2>
-      <p><strong>Driver:</strong> ${driverName}</p>
-      <p><strong>Status:</strong> ${reason}</p>
-      <a href="${mapLink}" style="display:inline-block; padding:12px 20px; background:#ef4444; color:white; text-decoration:none; border-radius:8px; font-weight:bold;">Track Bus Location</a>
+  // C. Exam Timetable
+  sendTimetableEmail: async (emails, teacherName, semester) => {
+    const html = getHtmlTemplate('Exam Timetable Published', `
+      <p><strong>Academic Advisor:</strong> ${teacherName}</p>
+      <p>The examination schedule for <strong>${semester}</strong> has been officially released.</p>
+      <p>Please login to the <strong>Campus Soon</strong> app to view specific dates, hall timings, and subjects.</p>
+    `);
+    await sendEmail(emails, `📅 Exam Schedule: ${semester}`, html);
+  },
+
+  // D. SOS Alert (Urgent)
+  sendSOSEmail: async (emails, driverName, reason, googleMapLink) => {
+    const html = getHtmlTemplate('🚨 SOS EMERGENCY ALERT', `
+      <div style="border: 2px solid #d9534f; padding: 20px; border-radius: 10px;">
+        <h2 style="color: #d9534f; margin-top: 0;">Emergency Reported</h2>
+        <p><strong>Bus Driver:</strong> ${driverName}</p>
+        <p><strong>Reason:</strong> ${reason}</p>
+        <p>An SOS alert has been triggered for your bus route. Please stay calm and follow emergency protocols.</p>
+        <div style="text-align: center; margin-top: 25px;">
+           <a href="${googleMapLink}" style="background-color: #d9534f; color: white; padding: 12px 25px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Live Bus Location</a>
+        </div>
+      </div>
     `, true);
-    await sendEmail(emails, `🚨 SOS: Emergency Alert`, html);
+    await sendEmail(emails, `🚨 URGENT: Emergency SOS on Bus`, html);
   }
 };
