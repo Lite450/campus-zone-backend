@@ -24,41 +24,35 @@ const getHtmlTemplate = (title, bodyContent, isUrgent = false) => {
 
 const sendEmail = async (toEmails, subject, htmlContent) => {
   try {
-    // 1. Ensure we have an array
-    let recipients = Array.isArray(toEmails) ? toEmails : [toEmails];
+    // 1. Ensure it is an array and remove duplicates again just in case
+    let emailList = Array.isArray(toEmails) ? toEmails : [toEmails];
+    emailList = [...new Set(emailList.filter(e => typeof e === 'string' && e.includes('@')))];
 
-    // 2. CRITICAL: Clean the data
-    // Remove nulls, undefined, empty strings, and ensure they are strings with '@'
-    recipients = recipients.filter(email => 
-      email && 
-      typeof email === 'string' && 
-      email.trim() !== '' && 
-      email.includes('@')
-    );
+    if (emailList.length === 0) return;
 
-    // 3. If after cleaning no emails are left, stop
-    if (recipients.length === 0) {
-      console.log("⚠️ No valid email addresses found to send to.");
-      return;
-    }
+    /* 
+      IMPORTANT FOR PROJECT TESTING:
+      If you are on Resend Free Tier, you can ONLY send to your own email.
+      To show this working in your presentation:
+      Go to your DB and change 2-3 student emails to YOUR OWN Gmail address.
+    */
 
-    // 4. Send using Resend
     const { data, error } = await resend.emails.send({
       from: 'Campus Soon <onboarding@resend.dev>',
-      to: recipients,
+      to: emailList, // Resend accepts an array of strings here
       subject: subject,
       html: htmlContent,
     });
 
     if (error) {
-      // Log the specific error from Resend
-      console.error("❌ RESEND API ERROR:", error);
+      // This will catch the 422 error if you try to send to an unverified email
+      console.error("❌ RESEND REJECTED DATA:", error.message);
       return;
     }
 
-    console.log(`📧 API SUCCESS: Email sent to ${recipients.length} users. ID: ${data.id}`);
+    console.log(`📧 SUCCESS: Broadcast delivered to ${emailList.length} users.`);
   } catch (err) {
-    console.error("❌ GLOBAL EMAIL ERROR:", err.message);
+    console.error("❌ CRITICAL EMAIL ERROR:", err.message);
   }
 };
 
