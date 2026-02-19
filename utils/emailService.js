@@ -3,23 +3,32 @@ const nodemailer = require('nodemailer');
 // 1. Configure Optimized Cloud Transporter
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port: 587, // Port 587 (STARTTLS) is more reliable on Render/Cloud than 465
+  port: 587,
   secure: false, // Must be false for port 587
   requireTLS: true,
-  pool: true,   // Keeps connection open for multiple emails
-  maxConnections: 3,
-  maxMessages: 100,
+  // -------------------------------------------------------------
+  // ⚡ VERCEL OPTIMIZATION: Disable Pooling
+  // -------------------------------------------------------------
+  // We MUST set pool: false for serverless functions (Vercel/AWS Lambda).
+  // Why? Serverless functions freeze after execution. A kept-alive connection
+  // will cause the next invocation to timeout or hang.
+  pool: false,
+
   auth: {
     user: process.env.EMAIL_USER,
-    // Automatically removes spaces from your App Password string
     pass: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.replace(/\s+/g, '') : ""
   },
-  // Increased timeouts for Render (Free Tier can be slow)
-  connectionTimeout: 60000, // 60 seconds
-  greetingTimeout: 30000,   // 30 seconds
-  socketTimeout: 60000,     // 60 seconds
+
+  // -------------------------------------------------------------
+  // ⏱️ TIMEOUTS (Fail Fast Strategy)
+  // -------------------------------------------------------------
+  // Vercel Hobby plan has a 10s Execution Limit.
+  // We set shorter timeouts so the error is caught before Vercel kills the function.
+  connectionTimeout: 10000, // 10 seconds
+  greetingTimeout: 5000,    // 5 seconds
+  socketTimeout: 10000,     // 10 seconds
+
   tls: {
-    // Helps with handshake issues in cloud environments
     rejectUnauthorized: false,
     minVersion: 'TLSv1.2'
   }
