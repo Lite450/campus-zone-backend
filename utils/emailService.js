@@ -1,49 +1,9 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-// 1. Configure Optimized Cloud Transporter
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false, // Must be false for port 587
-  requireTLS: true,
-  // -------------------------------------------------------------
-  // ⚡ VERCEL OPTIMIZATION: Disable Pooling
-  // -------------------------------------------------------------
-  // We MUST set pool: false for serverless functions (Vercel/AWS Lambda).
-  // Why? Serverless functions freeze after execution. A kept-alive connection
-  // will cause the next invocation to timeout or hang.
-  pool: false,
+// Initialize Resend with API Key
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.replace(/\s+/g, '') : ""
-  },
-
-  // -------------------------------------------------------------
-  // ⏱️ TIMEOUTS (Fail Fast Strategy)
-  // -------------------------------------------------------------
-  // Vercel Hobby plan has a 10s Execution Limit.
-  // We set shorter timeouts so the error is caught before Vercel kills the function.
-  connectionTimeout: 10000, // 10 seconds
-  greetingTimeout: 5000,    // 5 seconds
-  socketTimeout: 10000,     // 10 seconds
-
-  tls: {
-    rejectUnauthorized: false,
-    minVersion: 'TLSv1.2'
-  }
-});
-
-// Verify connection on startup (Check your Render logs for this)
-transporter.verify((error, success) => {
-  if (error) {
-    console.log("❌ Render Mail Server Error:", error.message);
-  } else {
-    console.log("✅ Render Mail Server is Ready (Campus Zone)");
-  }
-});
-
-// 2. Standard HTML Template Design
+// 1. Standard HTML Template Design (Preserved)
 const getHtmlTemplate = (title, bodyContent, isUrgent = false) => {
   const headerColor = isUrgent ? '#d9534f' : '#6366f1'; // Red for SOS, Indigo for others
 
@@ -64,24 +24,36 @@ const getHtmlTemplate = (title, bodyContent, isUrgent = false) => {
   `;
 };
 
-// 3. Optimized Send Function
+// 2. Optimized Send Function via Resend API
 const sendEmail = async (toEmails, subject, htmlContent) => {
   if (!toEmails || (Array.isArray(toEmails) && toEmails.length === 0)) return;
 
-  // We use BCC for broadcasts. It's more private and efficient for Gmail.
-  const mailOptions = {
-    from: `"Campus Zone Admin" <${process.env.EMAIL_USER}>`,
-    to: process.env.EMAIL_USER, // Send to yourself
-    bcc: Array.isArray(toEmails) ? toEmails.join(', ') : toEmails, // BCC everyone else
-    subject: subject,
-    html: htmlContent
-  };
+  const recipients = Array.isArray(toEmails) ? toEmails : [toEmails];
 
   try {
-    await transporter.sendMail(mailOptions);
-    console.log(`📧 SUCCESS: Email sent to ${Array.isArray(toEmails) ? toEmails.length : 1} recipients.`);
+    // IMPORTANT: Resend requires a verified domain to send FROM custom emails.
+    // If you don't have a domain yet, use 'onboarding@resend.dev' for testing.
+    // Once verified, change this to: `Campus Zone <notifications@yourdomain.com>`
+    const fromEmail = 'Campus Zone <onboarding@resend.dev>';
+
+    // For testing without a domain, you can ONLY send to your verified email (e.g., your gmail).
+    // Sending to random users will throw a 403 error until you verify a domain.
+
+    const data = await resend.emails.send({
+      from: fromEmail,
+      to: process.env.EMAIL_USER, // Send to Admin/Self mainly for testing/safety
+      bcc: recipients,            // BCC everyone else (Bulk sending)
+      subject: subject,
+      html: htmlContent,
+    });
+
+    if (data.error) {
+      console.error("❌ Resend API Error:", data.error);
+    } else {
+      console.log(`📧 SUCCESS: Email sent via Resend. ID: ${data.data.id}`);
+    }
   } catch (error) {
-    console.error("❌ NODEMAILER CLOUD ERROR:", error.message);
+    console.error("❌ Resend Execution Error:", error.message);
   }
 };
 
