@@ -31,6 +31,7 @@ exports.setInstituteLocation = async (req, res) => {
 };
 
 // Send Broadcast (Admin)
+// Send Broadcast (Admin)
 exports.sendBroadcast = async (req, res) => {
   try {
     const { senderId, title, message, targetAudience } = req.body;
@@ -49,9 +50,6 @@ exports.sendBroadcast = async (req, res) => {
 
     // 2. Build Query
     let query = { isApproved: true };
-
-    // Logic: If audience is NOT 'all', filter by that specific role
-    // This now automatically handles 'student', 'teacher', 'driver', and 'non-faculty'
     if (targetAudience !== 'all') {
       query.role = targetAudience;
     }
@@ -59,21 +57,25 @@ exports.sendBroadcast = async (req, res) => {
     const users = await User.find(query).select('email');
     const emailList = users.map(u => u.email).filter(e => e);
 
-    // 3. Background Email Sending
+    // 3. Email Sending (UPDATED: Added 'await')
+    // In Vercel, we MUST wait for this to finish, or the connection is cut.
     if (emailList.length > 0) {
-      emailService.sendBroadcastEmail(emailList, title, message)
-        .then(() => console.log(`📧 Broadcast emails sent to ${emailList.length} users.`))
-        .catch(err => console.error("❌ Staff Broadcast Email Error:", err.message));
+      try {
+        await emailService.sendBroadcastEmail(emailList, title, message);
+        console.log(`📧 Broadcast emails sent to ${emailList.length} users.`);
+      } catch (err) {
+        // Log but don't fail the request completely
+        console.error("❌ Staff Broadcast Email Error:", err.message);
+      }
     }
 
-    // 4. Socket Emit (Real-time App Notification)
+    // 4. Socket Emit
     const io = req.app.get('socketio');
     const payload = { title, message, from: 'Admin', date: new Date() };
 
     if (targetAudience === 'all') {
       io.emit('broadcast-alert', payload);
     } else {
-      // Sends to specific room: role-student, role-teacher, role-non-faculty etc.
       io.to(`role-${targetAudience}`).emit('broadcast-alert', payload);
     }
 

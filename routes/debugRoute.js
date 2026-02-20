@@ -44,12 +44,15 @@ router.get('/debug-env', async (req, res) => {
         await transporter.verify();
         debugInfo.smtpTest.connectionVerified = true;
 
-        // 3. Try sending a self-email
+        // 3. Try sending a self-email OR to a specific request
+        const targetEmail = req.query.to || process.env.EMAIL_USER;
+
         const info = await transporter.sendMail({
-            from: process.env.EMAIL_USER,
-            to: process.env.EMAIL_USER, // Send to self
-            subject: 'Vercel Debug Test',
-            text: 'If you received this, Vercel email sending is WORKING.'
+            from: `"Campus Zone Debug" <${process.env.EMAIL_USER}>`,
+            to: targetEmail,
+            subject: 'Vercel Debug Test (New)',
+            text: `If you received this, Vercel email sending is WORKING. Target: ${targetEmail}`,
+            html: `<h3>Vercel Email Test</h3><p>Success! The system can send emails.</p><p>Target: ${targetEmail}</p>`
         });
 
         debugInfo.smtpTest.success = true;

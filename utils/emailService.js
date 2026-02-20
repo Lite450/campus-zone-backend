@@ -1,25 +1,29 @@
 const nodemailer = require('nodemailer');
 
-// Create a generic transporter
-// Using explicit settings for better reliability on Vercel
 const createTransporter = () => {
   return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // Use SSL
+    service: 'gmail', // Automatically sets host to smtp.gmail.com and port 465
     auth: {
       user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
+      pass: process.env.EMAIL_PASS, // Make sure this is an App Password, not login password
     },
+    // Serverless optimizations
+    pool: false, // Don't pool connections (bad for serverless)
+    maxConnections: 1,
+    secure: true,
+    tls: {
+      rejectUnauthorized: true, // Keep true for security
+      ciphers: "SSLv3"
+    },
+    // Timeouts to prevent Vercel freezing
+    connectionTimeout: 10000, // 10 seconds
+    greetingTimeout: 5000,    // 5 seconds
+    socketTimeout: 10000,     // 10 seconds
   });
 };
 
-/* 
- * 1. Standard HTML Template Design
- */
 const getHtmlTemplate = (title, bodyContent, isUrgent = false) => {
-  const headerColor = isUrgent ? '#d9534f' : '#6366f1'; // Red for SOS, Indigo for others
-
+  const headerColor = isUrgent ? '#d9534f' : '#6366f1';
   return `
     <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
       <div style="background-color: ${headerColor}; padding: 30px; text-align: center; color: white;">
@@ -37,9 +41,6 @@ const getHtmlTemplate = (title, bodyContent, isUrgent = false) => {
   `;
 };
 
-/*
- * 2. Optimized Send Function via Nodemailer (Serverless Friendly)
- */
 const sendEmail = async (toEmails, subject, htmlContent) => {
   if (!toEmails || (Array.isArray(toEmails) && toEmails.length === 0)) {
     console.warn("⚠️ Email skipped: No recipients provided.");
@@ -47,36 +48,33 @@ const sendEmail = async (toEmails, subject, htmlContent) => {
   }
 
   const recipients = Array.isArray(toEmails) ? toEmails.join(', ') : toEmails;
-
-  // Create transporter per request to ensure fresh connection in serverless environment
-  // This avoids timeout issues with stale connections in Vercel functions
   const transporter = createTransporter();
 
-  const mailOptions = {
-    from: `"Campus Zone" <${process.env.EMAIL_USER}>`,
-    to: recipients,
-    subject: subject,
-    html: htmlContent,
-  };
-
   try {
-    const info = await transporter.sendMail(mailOptions);
+    // Verify connection before sending
+    await transporter.verify();
+    
+    const info = await transporter.sendMail({
+      from: `"Campus Zone" <${process.env.EMAIL_USER}>`,
+      to: recipients,
+      subject: subject,
+      html: htmlContent,
+    });
+    
     console.log(`📧 Email sent: ${info.messageId}`);
     return info;
   } catch (error) {
     console.error("❌ Error sending email:", error);
-    throw error;
+    // Don't throw error here to prevent crashing the whole request if email fails
+    return null; 
   }
 };
 
 module.exports = {
-  // A. Admin Broadcast
   sendBroadcastEmail: async (emails, title, message) => {
     const html = getHtmlTemplate(title, `<p style="font-size: 16px;">${message}</p>`);
-    await sendEmail(emails, `📢 Notice: ${title}`, html);
+    return await sendEmail(emails, `📢 Notice: ${title}`, html);
   },
-
-  // B. Teacher Assignment
   sendAssignmentEmail: async (emails, teacherName, topic, date) => {
     const html = getHtmlTemplate('New Assignment Uploaded', `
       <h3 style="color: #6366f1; margin-top: 0;">${topic}</h3>
@@ -84,20 +82,16 @@ module.exports = {
       <p><strong>Submission Deadline:</strong> ${date}</p>
       <p>Please check your student dashboard for full details and instructions.</p>
     `);
-    await sendEmail(emails, `📝 Assignment: ${topic}`, html);
+    return await sendEmail(emails, `📝 Assignment: ${topic}`, html);
   },
-
-  // C. Exam Timetable
   sendTimetableEmail: async (emails, teacherName, semester) => {
     const html = getHtmlTemplate('Exam Timetable Published', `
       <p><strong>Academic Advisor:</strong> ${teacherName}</p>
       <p>The examination schedule for <strong>${semester}</strong> has been officially released.</p>
       <p>Please login to the <strong>Campus Zone</strong> app to view specific dates, hall timings, and subjects.</p>
     `);
-    await sendEmail(emails, `📅 Exam Schedule: ${semester}`, html);
+    return await sendEmail(emails, `📅 Exam Schedule: ${semester}`, html);
   },
-
-  // D. SOS Alert (Urgent)
   sendSOSEmail: async (emails, driverName, reason, googleMapLink) => {
     const html = getHtmlTemplate('🚨 SOS EMERGENCY ALERT', `
       <div style="border: 2px solid #d9534f; padding: 20px; border-radius: 10px;">
@@ -110,9 +104,7 @@ module.exports = {
         </div>
       </div>
     `, true);
-    await sendEmail(emails, `🚨 URGENT: Emergency SOS on Bus`, html);
+    return await sendEmail(emails, `🚨 URGENT: Emergency SOS on Bus`, html);
   },
-
-  // Expose internal helper for generic usage if needed
   sendGenericEmail: sendEmail
 };
