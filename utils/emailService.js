@@ -12,13 +12,13 @@ const createTransporter = () => {
     maxConnections: 1,
     secure: true,
     tls: {
-      rejectUnauthorized: true, // Keep true for security
-      ciphers: "SSLv3"
+      rejectUnauthorized: true,
+      minVersion: 'TLSv1.2'
     },
     // Timeouts to prevent Vercel freezing
     connectionTimeout: 10000, // 10 seconds
-    greetingTimeout: 5000,    // 5 seconds
-    socketTimeout: 10000,     // 10 seconds
+    greetingTimeout: 15000,    // Increased greeting timeout
+    socketTimeout: 15000,     // Increased socket timeout
   });
 };
 
@@ -47,26 +47,35 @@ const sendEmail = async (toEmails, subject, htmlContent) => {
     return;
   }
 
-  const recipients = Array.isArray(toEmails) ? toEmails.join(', ') : toEmails;
   const transporter = createTransporter();
+
+  // For broadcast (multiple recipients), use BCC to protect privacy and improve delivery
+  const isMultiple = Array.isArray(toEmails) && toEmails.length > 1;
+  const mailOptions = {
+    from: `"Campus Zone" <${process.env.EMAIL_USER}>`,
+    subject: subject,
+    html: htmlContent,
+  };
+
+  if (isMultiple) {
+    mailOptions.to = process.env.EMAIL_USER; // Send to self
+    mailOptions.bcc = toEmails; // All others in BCC
+  } else {
+    mailOptions.to = Array.isArray(toEmails) ? toEmails[0] : toEmails;
+  }
 
   try {
     // Verify connection before sending
     await transporter.verify();
-    
-    const info = await transporter.sendMail({
-      from: `"Campus Zone" <${process.env.EMAIL_USER}>`,
-      to: recipients,
-      subject: subject,
-      html: htmlContent,
-    });
-    
-    console.log(`📧 Email sent: ${info.messageId}`);
+
+    const info = await transporter.sendMail(mailOptions);
+
+    console.log(`📧 Email sent: ${info.messageId} to ${isMultiple ? toEmails.length + ' (BCC)' : mailOptions.to}`);
     return info;
   } catch (error) {
     console.error("❌ Error sending email:", error);
-    // Don't throw error here to prevent crashing the whole request if email fails
-    return null; 
+    // Log the full error but don't fail the entire process
+    return null;
   }
 };
 

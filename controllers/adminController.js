@@ -59,13 +59,21 @@ exports.sendBroadcast = async (req, res) => {
 
     // 3. Email Sending (UPDATED: Added 'await')
     // In Vercel, we MUST wait for this to finish, or the connection is cut.
+    let emailStatus = "No emails sent";
     if (emailList.length > 0) {
       try {
-        await emailService.sendBroadcastEmail(emailList, title, message);
-        console.log(`📧 Broadcast emails sent to ${emailList.length} users.`);
+        const info = await emailService.sendBroadcastEmail(emailList, title, message);
+        if (info) {
+          console.log(`📧 Broadcast emails sent to ${emailList.length} users via BCC.`);
+          emailStatus = `Broadcast transmitted to ${emailList.length} users.`;
+        } else {
+          console.warn("⚠️ Broadcast email process returned no info.");
+          emailStatus = "Broadcast triggered, but email delivery status uncertain.";
+        }
       } catch (err) {
         // Log but don't fail the request completely
         console.error("❌ Staff Broadcast Email Error:", err.message);
+        emailStatus = `Broadcast recorded, but email failed: ${err.message}`;
       }
     }
 
@@ -80,7 +88,7 @@ exports.sendBroadcast = async (req, res) => {
     }
 
     res.status(200).json({
-      message: `Transmitted to ${emailList.length} ${targetAudience} users.`
+      message: emailStatus
     });
 
   } catch (error) {
