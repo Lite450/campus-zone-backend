@@ -29,6 +29,7 @@ app.set('socketio', io);
 
 // Mount API Routes
 app.use('/api', apiRoutes);
+app.use('/api', require('./routes/testEmailRoute')); // Test Route
 
 // ============================================
 // 🔌 REAL-TIME SOCKET ENGINE
@@ -50,7 +51,7 @@ io.on('connection', (socket) => {
     // Join Trip Room (For Live Tracking & SOS)
     // Students join the room of their assigned driver
     if (driverId) socket.join(`trip-${driverId}`);
-    
+
     console.log(`Socket joined rooms for role: ${role}`);
   });
 
@@ -60,7 +61,7 @@ io.on('connection', (socket) => {
 
     // A. Broadcast to Passengers IMMEDIATELY (Fastest UI update)
     io.to(`trip-${driverId}`).emit('live-bus-update', { driverId, lat, lng, heading, speed });
-    
+
     // B. Broadcast to Admin Map (Global Fleet View)
     io.emit('admin-map-update', { driverId, lat, lng });
 
@@ -69,7 +70,7 @@ io.on('connection', (socket) => {
     try {
       await LiveBusLocation.findOneAndUpdate(
         { driverId },
-        { 
+        {
           location: { lat, lng, heading, speed },
           lastUpdated: Date.now()
         },
@@ -84,10 +85,10 @@ io.on('connection', (socket) => {
   socket.on('sos-alert', (data) => {
     const { driverId, message, lat, lng } = data;
     const alertData = { driverId, type: 'SOS', message, location: { lat, lng }, time: new Date() };
-    
+
     // Alert Admin
     io.emit('admin-alert', alertData);
-    
+
     // Alert Passengers on that specific bus
     io.to(`trip-${driverId}`).emit('sos-broadcast', alertData);
   });

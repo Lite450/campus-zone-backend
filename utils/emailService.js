@@ -1,9 +1,21 @@
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 
-// Initialize Resend with API Key
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Create a generic transporter
+// For Gmail: service: 'gmail'
+// For others: host, port, secure
+const createTransporter = () => {
+    return nodemailer.createTransport({
+        service: 'gmail', // Standard for many users, fallback to host/port if needed in future
+        auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS, // App Password for Gmail
+        },
+    });
+};
 
-// 1. Standard HTML Template Design (Preserved)
+/* 
+ * 1. Standard HTML Template Design
+ */
 const getHtmlTemplate = (title, bodyContent, isUrgent = false) => {
   const headerColor = isUrgent ? '#d9534f' : '#6366f1'; // Red for SOS, Indigo for others
 
@@ -24,38 +36,49 @@ const getHtmlTemplate = (title, bodyContent, isUrgent = false) => {
   `;
 };
 
-// 2. Optimized Send Function via Resend API
+/*
+ * 2. Optimized Send Function via Nodemailer
+ */
 const sendEmail = async (toEmails, subject, htmlContent) => {
-  if (!toEmails || (Array.isArray(toEmails) && toEmails.length === 0)) return;
+  if (!toEmails || (Array.isArray(toEmails) && toEmails.length === 0)) {
+      console.warn("⚠️ Email skipped: No recipients provided.");
+      return;
+  }
 
-  const recipients = Array.isArray(toEmails) ? toEmails : [toEmails];
+  const recipients = Array.isArray(toEmails) ? toEmails.join(', ') : toEmails;
+  const transporter = createTransporter();
+
+  const mailOptions = {
+    from: `"Campus Zone" <${process.env.EMAIL_USER}>`,
+    to: recipients,
+    subject: subject,
+    html: htmlContent,
+  };
 
   try {
-    // IMPORTANT: Resend requires a verified domain to send FROM custom emails.
-    // If you don't have a domain yet, use 'onboarding@resend.dev' for testing.
-    // Once verified, change this to: `Campus Zone <notifications@yourdomain.com>`
-    const fromEmail = 'Campus Zone <onboarding@resend.dev>';
-
-    // For testing without a domain, you can ONLY send to your verified email (e.g., your gmail).
-    // Sending to random users will throw a 403 error until you verify a domain.
-
-    const data = await resend.emails.send({
-      from: fromEmail,
-      to: process.env.EMAIL_USER, // Send to Admin/Self mainly for testing/safety
-      bcc: recipients,            // BCC everyone else (Bulk sending)
-      subject: subject,
-      html: htmlContent,
-    });
-
-    if (data.error) {
-      console.error("❌ Resend API Error:", data.error);
-    } else {
-      console.log(`📧 SUCCESS: Email sent via Resend. ID: ${data.data.id}`);
-    }
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`📧 Email sent: ${info.messageId}`);
+    return info;
   } catch (error) {
-    console.error("❌ Resend Execution Error:", error.message);
+    console.error("❌ Error sending email:", error);
+    throw error; // Re-throw to be handled by caller if needed
   }
 };
+
+// Verify connection configuration
+const verifyConnection = async () => {
+    const transporter = createTransporter();
+    try {
+        await transporter.verify();
+        console.log('✅ SMTP Connection established successfully.');
+        return true;
+    } catch (error) {
+        console.error('❌ SMTP Connection failed:', error);
+        return false;
+    }
+};
+
+verifyConnection(); // Check connection on server start
 
 module.exports = {
   // A. Admin Broadcast
@@ -99,5 +122,8 @@ module.exports = {
       </div>
     `, true);
     await sendEmail(emails, `🚨 URGENT: Emergency SOS on Bus`, html);
-  }
+  },
+  
+  // Expose internal helper for generic usage if needed
+  sendGenericEmail: sendEmail 
 };
