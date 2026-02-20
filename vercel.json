@@ -1,21 +1,15 @@
 {
   "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "server.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/server.js"
+      "source": "/(.*)",
+      "destination": "/server.js"
     }
   ],
   "functions": {
     "server.js": {
       "maxDuration": 10,
-      "includeFiles": "email-templates/**" 
+      "memory": 1024
     }
   }
 }
