@@ -1,157 +1,203 @@
-const User = require('../models/User');
+// authController.js — Rewritten with Supabase (replaces all Mongoose calls)
+const supabase = require('../config/supabaseAdmin');
 
-// Register
+// ============================================================
+// REGISTER — App user registers, status: pending (needs approval)
+// ============================================================
 exports.register = async (req, res) => {
   try {
     const { name, email, password, role, lat, lng, classTeacherId } = req.body;
 
-    // 1. CHECK IF EMAIL ALREADY EXISTS
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ message: "This email is already registered." });
-    }
-    
-    // 2. Auto-approve Admin, others need approval
-    const isApproved = role === 'admin'; 
+    // 1. Check email already exists
+    const { data: existing } = await supabase
+      .from('app_users')
+      .select('id')
+      .eq('email', email.toLowerCase().trim())
+      .limit(1);
 
-    // 3. Logic: If registering with a Teacher ID, set status to 'pending'
-    let requestStatus = 'none';
-    if (role === 'student' && classTeacherId) {
-      requestStatus = 'pending';
+    if (existing && existing.length > 0) {
+      return res.status(400).json({ message: 'This email is already registered.' });
     }
 
-    const newUser = new User({
-      name, 
-      email, 
-      password, 
-      role, 
-      isApproved,
-      classTeacherId, 
-      teacherRequestStatus: requestStatus, 
-      homeLocation: { lat, lng }
-    });
+    // 2. Admins auto-approved, everyone else waits
+    const isApproved = role === 'admin';
+    const teacherRequestStatus = (role === 'student' && classTeacherId) ? 'pending' : 'none';
 
-    await newUser.save();
-    res.status(201).json({ message: "Registration Successful." });
-    
+    // 3. Insert into Supabase
+    const { error } = await supabase
+      .from('app_users')
+      .insert([{
+        name,
+        email: email.toLowerCase().trim(),
+        password,           // plain text for now (same as original)
+        role,
+        is_approved: isApproved,
+        class_teacher_id: classTeacherId || null,
+        teacher_request_status: teacherRequestStatus,
+        home_lat: lat || 0,
+        home_lng: lng || 0,
+      }]);
+
+    if (error) throw new Error(error.message);
+
+    res.status(201).json({ message: 'Registration Successful.' });
+
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-// Login
+// ============================================================
+// LOGIN — App user login
+// ============================================================
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email, password });
 
-    if (!user) return res.status(400).json({ message: "Invalid Credentials" });
-    if (!user.isApproved) return res.status(403).json({ message: "Account pending approval." });
+    const { data: users, error } = await supabase
+      .from('app_users')
+      .select('*')
+      .eq('email', email.toLowerCase().trim())
+      .eq('password', password)
+      .limit(1);
 
-    res.status(200).json({ 
-      message: "Login Success", 
-      userId: user._id, 
-      role: user.role, 
+    if (error) throw new Error(error.message);
+
+    if (!users || users.length === 0) {
+      return res.status(400).json({ message: 'Invalid Credentials' });
+    }
+
+    const user = users[0];
+
+    if (!user.is_approved) {
+      return res.status(403).json({ message: 'Account pending approval.' });
+    }
+
+    res.status(200).json({
+      message: 'Login Success',
+      userId: user.id,
+      role: user.role,
       name: user.name,
-      classTeacherId: user.classTeacherId
+      classTeacherId: user.class_teacher_id,
     });
+
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-// Admin: Approve Users
+// ============================================================
+// APPROVE USER — Admin approves a pending user
+// ============================================================
 exports.approveUser = async (req, res) => {
   try {
     const { userId } = req.body;
-    await User.findByIdAndUpdate(userId, { isApproved: true });
-    res.status(200).json({ message: "User Approved" });
+
+    const { error } = await supabase
+      .from('app_users')
+      .update({ is_approved: true })
+      .eq('id', userId);
+
+    if (error) throw new Error(error.message);
+
+    res.status(200).json({ message: 'User Approved' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
+
+// ============================================================
+// REJECT USER — Admin rejects (deletes) a pending user
+// ============================================================
 exports.rejectUser = async (req, res) => {
   try {
     const { userId } = req.body;
-    
-    const deletedUser = await User.findByIdAndDelete(userId);
-    
-    if (!deletedUser) {
-      return res.status(404).json({ message: "User not found." });
+
+    const { data: deleted, error } = await supabase
+      .from('app_users')
+      .delete()
+      .eq('id', userId)
+      .select();
+
+    if (error) throw new Error(error.message);
+    if (!deleted || deleted.length === 0) {
+      return res.status(404).json({ message: 'User not found.' });
     }
 
-    res.status(200).json({ message: "User request rejected and account deleted." });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-// Admin: Get Pending List
-exports.getPendingUsers = async (req, res) => {
-  try {
-    // Fetch users where approved is false, BUT role is NOT 'student'
-    // This ensures Admin only sees Drivers, Teachers, Staff
-    const users = await User.find({ 
-      isApproved: false, 
-      role: { $ne: 'student' } 
-    });
-    
-    res.status(200).json(users);
+    res.status(200).json({ message: 'User request rejected and account deleted.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
+// ============================================================
+// GET PENDING USERS — Admin sees users awaiting approval
+// ============================================================
+exports.getPendingUsers = async (req, res) => {
+  try {
+    const { data: users, error } = await supabase
+      .from('app_users')
+      .select('id, name, email, role, teacher_request_status, created_at')
+      .eq('is_approved', false)
+      .neq('role', 'student')
+      .order('created_at', { ascending: false });
+
+    if (error) throw new Error(error.message);
+
+    res.status(200).json(users || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ============================================================
+// DEFAULT ADMIN LOGIN — Hardcoded super admin (unchanged logic)
+// ============================================================
 exports.defaultAdminLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // 1. Check against .env variables
-    const defaultEmail = process.env.ADMIN_EMAIL || "admin@campussoon.com";
-    const defaultPass = process.env.ADMIN_PASSWORD || "admin123";
+    const defaultEmail = process.env.ADMIN_EMAIL || 'admin@campussoon.com';
+    const defaultPass = process.env.ADMIN_PASSWORD || 'admin123';
 
     if (email === defaultEmail && password === defaultPass) {
-      // 2. Return success with a hardcoded ID (or a special flag)
-      // We use a fake MongoDB ObjectId for consistency
       return res.status(200).json({
-        message: "Super Admin Login Successful",
-        userId: "000000000000000000000000", // 24-char hex string
-        name: "Super Admin",
-        role: "admin",
-        isApproved: true
+        message: 'Super Admin Login Successful',
+        userId: '00000000-0000-0000-0000-000000000000',
+        name: 'Super Admin',
+        role: 'admin',
+        isApproved: true,
       });
     }
 
-    // 3. If credentials don't match
-    return res.status(401).json({ message: "Invalid Admin Credentials" });
-
+    return res.status(401).json({ message: 'Invalid Admin Credentials' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
+// ============================================================
+// GET USERS BY ROLE — Get all approved users of a specific role
+// ============================================================
 exports.getUsersByRole = async (req, res) => {
   try {
     const { role } = req.params;
-
-    // 1. Validate role
     const validRoles = ['student', 'teacher', 'driver', 'non-faculty', 'admin'];
+
     if (!validRoles.includes(role)) {
-      return res.status(400).json({ message: "Invalid Role" });
+      return res.status(400).json({ message: 'Invalid Role' });
     }
 
-    // 2. Find users with specific role AND isApproved set to true
-    const users = await User.find({ 
-      role: role, 
-      isApproved: true  // <--- Added this filter
-    })
-    .select('-password') // Don't send passwords
-    .sort({ name: 1 });   // Sort alphabetically
+    const { data: users, error } = await supabase
+      .from('app_users')
+      .select('id, name, email, role, class_teacher_id, created_at')
+      .eq('role', role)
+      .eq('is_approved', true)
+      .order('name', { ascending: true });
 
-    res.status(200).json({
-      count: users.length,
-      role: role,
-      users: users
-    });
+    if (error) throw new Error(error.message);
+
+    res.status(200).json({ count: users.length, role, users });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
